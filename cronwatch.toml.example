@@ -1,0 +1,58 @@
+# cronwatch.toml.example
+# Copy this file to cronwatch.toml and adjust to your environment.
+
+# Path to the cronwatch log file
+log_file = "cronwatch.log"
+
+# How often (in seconds) cronwatch checks job statuses
+check_interval = 60
+
+# ---------------------------------------------------------------------------
+# Define each cron job to monitor
+# ---------------------------------------------------------------------------
+
+[[jobs]]
+# Unique name identifying this job
+name = "database-backup"
+
+# Standard cron expression for the expected schedule
+schedule = "0 2 * * *"
+
+# Maximum allowed runtime in seconds before an alert is raised (default: 3600)
+max_duration = 1800
+
+# Alert if the job fails (non-zero exit code)
+alert_on_failure = true
+
+# Alert if the job does not start within one schedule interval
+alert_on_delay = true
+
+# Hard timeout in seconds — kill the job if it exceeds this (optional)
+timeout = 2400
+
+# Arbitrary tags for filtering/grouping
+tags = ["database", "nightly"]
+
+
+[[jobs]]
+name = "log-cleanup"
+schedule = "0 * * * *"
+max_duration = 300
+alert_on_failure = true
+alert_on_delay = false
+tags = ["maintenance"]
+
+
+# ---------------------------------------------------------------------------
+# Alert delivery configuration (all fields optional)
+# ---------------------------------------------------------------------------
+
+[alerts]
+# Send alert emails to this address
+email = "ops-team@example.com"
+
+# POST alert payloads to this webhook URL
+webhook_url = "https://hooks.example.com/cronwatch"
+
+# Slack channel name or ID (requires SLACK_BOT_TOKEN env var)
+slack_channel = "#ops-alerts"
