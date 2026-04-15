@@ -19,7 +19,13 @@ def next_run(job: JobConfig, after: Optional[datetime] = None) -> datetime:
 
     Returns:
         A timezone-aware UTC datetime for the next scheduled execution.
+
+    Raises:
+        ValueError: If ``job.schedule`` is not a valid cron expression.
     """
+    if not croniter.is_valid(job.schedule):
+        raise ValueError(f"Invalid cron expression for job {job.name!r}: {job.schedule!r}")
+
     base = after or datetime.now(timezone.utc)
     # croniter works with naive datetimes; strip tz, then re-attach.
     base_naive = base.replace(tzinfo=None)
