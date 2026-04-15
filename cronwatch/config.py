@@ -1,88 +1,105 @@
-"""Configuration loading and validation for cronwatch."""
+"""Configuration loading for cronwatch."""
+
+from __future__ import annotations
 
 import os
-import tomllib
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
+try:
+    import tomllib  # Python 3.11+
+except ImportError:  # pragma: no cover
+    import tomli as tomllib  # type: ignore
 
-DEFAULT_CONFIG_PATHS = [
-    Path("cronwatch.toml"),
-    Path(".cronwatch.toml"),
-    Path("~/.config/cronwatch/config.toml").expanduser(),
-]
+DEFAULT_CONFIG_PATH = "cronwatch.toml"
 
 
 @dataclass
 class JobConfig:
     name: str
-    schedule: str
-    max_duration: int = 3600  # seconds
-    alert_on_failure: bool = True
-    alert_on_delay: bool = True
-    timeout: Optional[int] = None
-    tags: list[str] = field(default_factory=list)
+    schedule: str = ""
+    timeout: int = 3600          # seconds
+    grace: int = 300             # seconds after expected run before alerting
+    enabled: bool = True
 
 
 @dataclass
 class AlertConfig:
-    email: Optional[str] = None
-    webhook_url: Optional[str] = None
-    slack_channel: Optional[str] = None
+    smtp_host: str = "localhost"
+    smtp_port: int = 25
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    from_address: str = "cronwatch@localhost"
+    to_addresses: List[str] = field(default_factory=list)
+    use_tls: bool = False
+
+
+@dataclass
+class DigestConfig:
+    enabled: bool = False
+    schedule: str = "daily"
+    recipient: Optional[str] = None
+    job_names: List[str] = field(default_factory=list)
 
 
 @dataclass
 class CronwatchConfig:
-    jobs: list[JobConfig] = field(default_factory=list)
+    jobs: List[JobConfig] = field(default_factory=list)
     alerts: AlertConfig = field(default_factory=AlertConfig)
-    log_file: str = "cronwatch.log"
-    check_interval: int = 60  # seconds
+    digest: DigestConfig = field(default_factory=DigestConfig)
+    history_dir: str = ".cronwatch"
+    log_level: str = "INFO"
 
 
-def load_config(config_path: Optional[str] = None) -> CronwatchConfig:
-    """Load configuration from a TOML file."""
-    path: Optional[Path] = None
-
-    if config_path:
-        path = Path(config_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Config file not found: {config_path}")
-    else:
-        for candidate in DEFAULT_CONFIG_PATHS:
-            if candidate.exists():
-                path = candidate
-                break
-
-    if path is None:
-        return CronwatchConfig()
-
-    with open(path, "rb") as f:
-        raw = tomllib.load(f)
-
-    jobs = [
+def _parse_jobs(raw: list) -> List[JobConfig]:
+    return [
         JobConfig(
             name=j["name"],
-            schedule=j["schedule"],
-            max_duration=j.get("max_duration", 3600),
-            alert_on_failure=j.get("alert_on_failure", True),
-            alert_on_delay=j.get("alert_on_delay", True),
-            timeout=j.get("timeout"),
-            tags=j.get("tags", []),
+            schedule=j.get("schedule", ""),
+            timeout=j.get("timeout", 3600),
+            grace=j.get("grace", 300),
+            enabled=j.get("enabled", True),
         )
-        for j in raw.get("jobs", [])
+        for j in raw
     ]
 
-    raw_alerts = raw.get("alerts", {})
-    alerts = AlertConfig(
-        email=raw_alerts.get("email"),
-        webhook_url=raw_alerts.get("webhook_url"),
-        slack_channel=raw_alerts.get("slack_channel"),
+
+def _parse_alerts(raw: dict) -> AlertConfig:
+    return AlertConfig(
+        smtp_host=raw.get("smtp_host", "localhost"),
+        smtp_port=raw.get("smtp_port", 25),
+        smtp_user=raw.get("smtp_user"),
+        smtp_password=raw.get("smtp_password"),
+        from_address=raw.get("from_address", "cronwatch@localhost"),
+        to_addresses=raw.get("to_addresses", []),
+        use_tls=raw.get("use_tls", False),
     )
 
+
+def _parse_digest(raw: dict) -> DigestConfig:
+    return DigestConfig(
+        enabled=raw.get("enabled", False),
+        schedule=raw.get("schedule", "daily"),
+        recipient=raw.get("recipient"),
+        job_names=raw.get("job_names", []),
+    )
+
+
+def load_config(path: Optional[str] = None) -> CronwatchConfig:
+    if path is not None and not os.path.exists(path):
+        raise FileNotFoundError(f"Config file not found: {path}")
+
+    if path is None and not os.path.exists(DEFAULT_CONFIG_PATH):
+        return CronwatchConfig()
+
+    config_path = path or DEFAULT_CONFIG_PATH
+    with open(config_path, "rb") as fh:
+        data = tomllib.load(fh)
+
     return CronwatchConfig(
-        jobs=jobs,
-        alerts=alerts,
-        log_file=raw.get("log_file", "cronwatch.log"),
-        check_interval=raw.get("check_interval", 60),
+        jobs=_parse_jobs(data.get("jobs", [])),
+        alerts=_parse_alerts(data.get("alerts", {})),
+        digest=_parse_digest(data.get("digest", {})),
+        history_dir=data.get("history_dir", ".cronwatch"),
+        log_level=data.get("log_level", "INFO"),
     )

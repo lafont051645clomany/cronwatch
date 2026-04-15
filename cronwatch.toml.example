@@ -1,58 +1,47 @@
-# cronwatch.toml.example
-# Copy this file to cronwatch.toml and adjust to your environment.
+# cronwatch.toml.example — copy to cronwatch.toml and adjust as needed
 
-# Path to the cronwatch log file
-log_file = "cronwatch.log"
+history_dir = ".cronwatch"
+log_level   = "INFO"
 
-# How often (in seconds) cronwatch checks job statuses
-check_interval = 60
-
-# ---------------------------------------------------------------------------
-# Define each cron job to monitor
-# ---------------------------------------------------------------------------
+# ── Jobs ────────────────────────────────────────────────────────────────────
 
 [[jobs]]
-# Unique name identifying this job
-name = "database-backup"
-
-# Standard cron expression for the expected schedule
-schedule = "0 2 * * *"
-
-# Maximum allowed runtime in seconds before an alert is raised (default: 3600)
-max_duration = 1800
-
-# Alert if the job fails (non-zero exit code)
-alert_on_failure = true
-
-# Alert if the job does not start within one schedule interval
-alert_on_delay = true
-
-# Hard timeout in seconds — kill the job if it exceeds this (optional)
-timeout = 2400
-
-# Arbitrary tags for filtering/grouping
-tags = ["database", "nightly"]
-
+name     = "daily-backup"
+schedule = "0 2 * * *"   # cron expression
+timeout  = 7200           # seconds before job is considered timed-out
+grace    = 600            # seconds of slack after expected start
+enabled  = true
 
 [[jobs]]
-name = "log-cleanup"
+name     = "hourly-sync"
 schedule = "0 * * * *"
-max_duration = 300
-alert_on_failure = true
-alert_on_delay = false
-tags = ["maintenance"]
+timeout  = 300
+grace    = 120
+enabled  = true
 
+[[jobs]]
+name     = "weekly-report"
+schedule = "0 8 * * 1"   # every Monday at 08:00
+timeout  = 1800
+grace    = 900
+enabled  = true
 
-# ---------------------------------------------------------------------------
-# Alert delivery configuration (all fields optional)
-# ---------------------------------------------------------------------------
+# ── Alerts ──────────────────────────────────────────────────────────────────
 
 [alerts]
-# Send alert emails to this address
-email = "ops-team@example.com"
+smtp_host     = "smtp.example.com"
+smtp_port     = 587
+smtp_user     = "cronwatch@example.com"
+smtp_password = "s3cr3t"
+from_address  = "cronwatch@example.com"
+to_addresses  = ["ops@example.com", "oncall@example.com"]
+use_tls       = true
 
-# POST alert payloads to this webhook URL
-webhook_url = "https://hooks.example.com/cronwatch"
+# ── Digest ───────────────────────────────────────────────────────────────────
+# Periodic summary emails covering all (or selected) jobs.
 
-# Slack channel name or ID (requires SLACK_BOT_TOKEN env var)
-slack_channel = "#ops-alerts"
+[digest]
+enabled   = true
+schedule  = "daily"          # "hourly" | "daily" | "weekly"
+recipient = "ops@example.com"
+# job_names = ["daily-backup"]  # omit to include all jobs
