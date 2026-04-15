@@ -1,87 +1,98 @@
-"""Notification channel registry and dispatcher for cronwatch."""
+"""Notification channel registry with optional rate-limit integration."""
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
 from cronwatch.alerts import dispatch_alert
 from cronwatch.config import AlertConfig
+from cronwatch.ratelimit import RateLimiter, RateLimitConfig
 from cronwatch.tracker import JobRun
 
-logger = logging.getLogger(__name__)
+# Type alias for a channel handler
+ChannelFn = Callable[[JobRun, AlertConfig], bool]
 
-# Type alias for a notification handler
-NotifyHandler = Callable[[JobRun, AlertConfig], bool]
-
-_REGISTRY: Dict[str, NotifyHandler] = {}
+_REGISTRY: Dict[str, ChannelFn] = {}
 
 
-def register_channel(name: str, handler: NotifyHandler) -> None:
-    """Register a notification channel handler by name."""
-    _REGISTRY[name] = handler
-    logger.debug("Registered notification channel: %s", name)
+def register_channel(name: str, fn: ChannelFn) -> None:
+    """Register a notification channel under *name*."""
+    _REGISTRY[name] = fn
 
 
-def get_channel(name: str) -> Optional[NotifyHandler]:
-    """Return a registered handler or None."""
+def get_channel(name: str) -> Optional[ChannelFn]:
+    """Return the channel function for *name*, or None."""
     return _REGISTRY.get(name)
 
 
 def list_channels() -> List[str]:
-    """Return names of all registered channels."""
-    return list(_REGISTRY.keys())
+    """Return sorted list of registered channel names."""
+    return sorted(_REGISTRY.keys())
 
 
 @dataclass
 class NotificationResult:
     channel: str
     success: bool
+    skipped: bool = False
     error: Optional[str] = None
 
 
 @dataclass
 class NotificationSummary:
-    run: JobRun
+    job: str
     results: List[NotificationResult] = field(default_factory=list)
 
     @property
-    def all_succeeded(self) -> bool:
-        return all(r.success for r in self.results)
+    def any_sent(self) -> bool:
+        return any(r.success for r in self.results)
 
     @property
-    def failed_channels(self) -> List[str]:
-        return [r.channel for r in self.results if not r.success]
+    def all_skipped(self) -> bool:
+        return all(r.skipped for r in self.results)
 
 
-def notify(run: JobRun, alert_cfg: AlertConfig, channels: Optional[List[str]] = None) -> NotificationSummary:
-    """Dispatch notifications for a job run across one or more channels.
+def notify(
+    run: JobRun,
+    alert_cfg: AlertConfig,
+    channels None,
+    rate_limiter: Optional[RateLimiter] = None,
+) -> NotificationSummary:
+    """Dispatch *run* alert through each requested channel.
 
-    Falls back to the built-in email dispatcher when no channels are specified
-    or when the 'email' channel is requested but not explicitly registered.
+    If *rate_limiter* is provided, alerts are skipped when the limiter
+    blocks them and recorded when they are sent.
     """
-    summary = NotificationSummary(run=run)
-    targets = channels or list_channels() or ["email"]
+    summary = NotificationSummary(job=run.job_name)
+    targets = channels if channels is not None else list_channels()
 
-    for channel in targets:
-        handler = get_channel(channel)
-        if handler is None and channel == "email":
-            # Use the default email dispatcher from alerts module
-            handler = lambda r, a: dispatch_alert(r, a)  # noqa: E731
-        if handler is None:
-            logger.warning("No handler registered for channel '%s'; skipping.", channel)
-            summary.results.append(NotificationResult(channel=channel, success=False, error="unregistered channel"))
+    for name in targets:
+        fn = get_channel(name)
+        if fn is None:
+            summary.results.append(
+                NotificationResult(channel=name, success=False, error="unknown channel")
+            )
             continue
+
+        if rate_limiter and not rate_limiter.is_allowed(run.job_name):
+            summary.results.append(
+                NotificationResult(channel=name, success=False, skipped=True)
+            )
+            continue
+
         try:
-            ok = handler(run, alert_cfg)
-            summary.results.append(NotificationResult(channel=channel, success=bool(ok)))
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.error("Channel '%s' raised an exception: %s", channel, exc)
-            summary.results.append(NotificationResult(channel=channel, success=False, error=str(exc)))
+            ok = fn(run, alert_cfg)
+            if rate_limiter and ok:
+                rate_limiter.record(run.job_name)
+            summary.results.append(NotificationResult(channel=name, success=ok))
+        except Exception as exc:  # noqa: BLE001
+            summary.results.append(
+                NotificationResult(channel=name, success=False, error=str(exc))
+            )
 
     return summary
 
 
-# Register the built-in email channel on import
-register_channel("email", lambda run, cfg: dispatch_alert(run, cfg))
+# Register the built-in e-mail channel
+register_channel("email", lambda run, cfg: (dispatch_alert(run, cfg), True)[1])
