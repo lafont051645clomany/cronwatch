@@ -45,6 +45,20 @@ def capture(job_name: str, runs: List[JobRun]) -> JobSnapshot:
     )
 
 
+def diff_snapshots(old: JobSnapshot, new: JobSnapshot) -> Dict[str, tuple]:
+    """Return a dict of fields that changed between *old* and *new* snapshots.
+
+    Each value is a ``(old_value, new_value)`` tuple.  Only scalar fields are
+    compared; ``captured_at`` is intentionally excluded as it always differs.
+    """
+    fields = ("last_status", "last_run_start", "last_run_end", "total_runs", "failure_count")
+    return {
+        field: (getattr(old, field), getattr(new, field))
+        for field in fields
+        if getattr(old, field) != getattr(new, field)
+    }
+
+
 def _snap_to_dict(snap: JobSnapshot) -> dict:
     d = asdict(snap)
     d["captured_at"] = snap.captured_at.isoformat()
