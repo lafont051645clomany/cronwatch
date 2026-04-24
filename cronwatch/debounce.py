@@ -61,3 +61,20 @@ class Debouncer:
 
     def state(self, job_name: str) -> Optional[_State]:
         return self._state.get(job_name)
+
+    def active_jobs(self) -> Dict[str, _State]:
+        """Return a snapshot of all jobs currently tracked by the debouncer.
+
+        Expired entries (whose window has already elapsed) are pruned before
+        returning so callers see only genuinely active suppression state.
+        """
+        now = _now()
+        window = timedelta(seconds=self._cfg.window_seconds)
+        expired = [
+            name
+            for name, s in self._state.items()
+            if now - s.last_seen > window
+        ]
+        for name in expired:
+            del self._state[name]
+        return dict(self._state)
