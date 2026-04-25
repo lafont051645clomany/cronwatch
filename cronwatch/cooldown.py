@@ -82,3 +82,16 @@ class CooldownTracker:
     def status(self, job_name: str) -> Optional[_Entry]:
         """Return the current cooldown entry for *job_name*, or None."""
         return self._entries.get(job_name)
+
+    def seconds_until_next_allowed(self, job_name: str, at: Optional[datetime] = None) -> float:
+        """Return the number of seconds until an alert for *job_name* is allowed.
+
+        Returns 0.0 if an alert is currently allowed.  Useful for surfacing
+        wait times in logs or status endpoints.
+        """
+        now = at or _now()
+        if self.is_allowed(job_name, at=now):
+            return 0.0
+        entry = self._entries[job_name]
+        elapsed = (now - entry.last_alert).total_seconds()
+        return max(0.0, self._config.period_seconds - elapsed)
