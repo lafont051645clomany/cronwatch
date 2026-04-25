@@ -39,6 +39,17 @@ class JobMetrics:
     def min_duration(self) -> Optional[float]:
         return min(self.durations) if self.durations else None
 
+    @property
+    def p95_duration(self) -> Optional[float]:
+        """Return the 95th-percentile duration, or None if no durations recorded."""
+        if not self.durations:
+            return None
+        sorted_durations = sorted(self.durations)
+        index = int(len(sorted_durations) * 0.95)
+        # Clamp to the last valid index
+        index = min(index, len(sorted_durations) - 1)
+        return sorted_durations[index]
+
 
 def compute_metrics(runs: List[JobRun]) -> Dict[str, JobMetrics]:
     """Compute per-job metrics from a list of JobRun objects."""
