@@ -88,5 +88,37 @@ def diff_snapshots(
 
 
 def changed_only(diffs: List[SnapshotDiff]) -> List[SnapshotDiff]:
-    """Filter to diffs that actually have something noteworthy."""
+    """Filter *diffs* to only those entries where something actually changed.
+
+    This is a convenience wrapper around :attr:`SnapshotDiff.has_changes` so
+    callers don't need to write the list-comprehension themselves.
+    """
     return [d for d in diffs if d.has_changes]
+
+
+def summary(diffs: List[SnapshotDiff]) -> str:
+    """Return a human-readable one-line summary of a list of diffs.
+
+    Example output::
+
+        3 jobs changed: 1 new, 1 missing, 1 status change
+    """
+    changed = changed_only(diffs)
+    new = sum(1 for d in changed if d.is_new_job)
+    missing = sum(1 for d in changed if d.is_missing_job)
+    status = sum(1 for d in changed if d.status_changed and not d.is_new_job and not d.is_missing_job)
+    failures = sum(1 for d in changed if d.new_failures > 0)
+
+    parts = []
+    if new:
+        parts.append(f"{new} new")
+    if missing:
+        parts.append(f"{missing} missing")
+    if status:
+        parts.append(f"{status} status change{'s' if status != 1 else ''}")
+    if failures:
+        parts.append(f"{failures} with new failure{'s' if failures != 1 else ''}")
+
+    if not parts:
+        return "0 jobs changed"
+    return f"{len(changed)} job{'s' if len(changed) != 1 else ''} changed: {', '.join(parts)}"
